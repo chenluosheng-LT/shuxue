@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>连线问题</title>
+    <style>
+        .container {
+            width: 800px;
+            height: 500px;
+            border: 2px solid #333;
+            margin: 20px auto;
+            position: relative;
+            background: #f8f8f8;
+        }
+        .point {
+            width: 20px;
+            height: 20px;
+            background: #ff4444;
+            border-radius: 50%;
+            position: absolute;
+            transform: translate(-50%, -50%);
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 2px solid white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+        .point:hover {
+            transform: translate(-50%, -50%) scale(1.3);
+            z-index: 2;
+        }
+        .line {
+            position: absolute;
+            transform-origin: left center;
+            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .controls {
+            text-align: center;
+            margin: 20px;
+            padding: 15px;
+            background: #f0f0f0;
+            border-radius: 8px;
+        }
+        .control-group {
+            margin: 10px;
+            display: inline-block;
+        }
+        label {
+            margin-right: 5px;
+            font-weight: 500;
+        }
+        button {
+            padding: 8px 16px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        #undoBtn {
+            background: #ff9800;
+        }
+        #undoBtn:hover {
+            background: #f57c00;
+        }
+        .stats-container {
+            text-align: center;
+            width: 100%;
+            margin: 20px 0;
+        }
+        .stats {
+            display: inline-flex;
+            background: #f8f8f8;
+            border-radius: 8px;
+            padding: 15px 30px;
+            margin: 0 auto;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+        }
+        .stat-item {
+            margin: 0 25px;
+            white-space: nowrap;
+            font-size: 30px;
+        }
+        .stat-label {
+            color: #666;
+            font-weight: bold;
+        }
+        .stat-value {
+            color: #2196F3;
+            font-weight: bold;
+        }
+        .mode-tip {
+            color: #666;
+            font-size: 30px;
+            margin-top: 10px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="controls">
+        <div class="control-group">
+            <label>基础点数：</label>
+            <input type="number" id="numPoints" min="2" value="0" style="width: 60px;">
+        </div>
+        <div class="control-group">
+            <label>连线颜色：</label>
+            <input type="color" id="lineColor" value="#2196F3">
+        </div>
+        <div class="control-group">
+            <button onclick="generatePoints()">生成基础点</button>
+        </div>
+        <div class="control-group">
+            <button id="undoBtn" onclick="undo()">撤回</button>
+        </div>
+    </div>
+    
+    <div id="container" class="container"></div>
+    
+    <div class="stats-container">
+        <div class="stats">
+            <div class="stat-item">
+                <span class="stat-label">当前点数：</span>
+                <span class="stat-value" id="pointCount">0</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">连线数量：</span>
+                <span class="stat-value" id="connectionCount">0</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">完成度：</span>
+                <span class="stat-value" id="completion">0%</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="mode-tip">说明：点击空白区域添加新点，点击已有点生成连线</div>
+
+    <script>
+        let connections = new Set();
+        let points = [];
+        let currentColor = '#2196F3';
+        let nextIndex = 0;
+        let history = [];
+
+        // 初始化颜色选择器
+        document.getElementById('lineColor').addEventListener('input', (e) => {
+            currentColor = e.target.value;
+        });
+
+        // 容器点击事件处理
+        document.getElementById('container').addEventListener('click', (e) => {
+            if (!e.target.classList.contains('point')) {
+                const rect = container.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+                createNewPoint(x, y);
+                updateStats();
+            }
+        });
+
+        // 生成长方形基础点
+        function generatePoints() {
+            const container = document.getElementById('container');
+            container.innerHTML = '';
+            connections.clear();
+            points = [];
+            nextIndex = 0;
+            history = [];
+            
+            const n = parseInt(document.getElementById('numPoints').value);
+            const padding = 40;
+            const width = container.offsetWidth - padding * 2;
+            const height = container.offsetHeight - padding * 2;
+
+            // 分配各边点数
+            const sides = [
+                { // 上边
+                    start: [padding, padding],
+                    end: [padding + width, padding],
+                    count: Math.ceil(n / 4)
+                },
+                { // 右边
+                    start: [padding + width, padding],
+                    end: [padding + width, padding + height],
+                    count: Math.ceil(n / 4)
+                },
+                { // 下边
+                    start: [padding + width, padding + height],
+                    end: [padding, padding + height],
+                    count: Math.ceil(n / 4)
+                },
+                { // 左边
+                    start: [padding, padding + height],
+                    end: [padding, padding],
+                    count: Math.floor(n / 4)
+                }
+            ];
+
+            sides.forEach(side => {
+                for(let i = 0; i < side.count; i++) {
+                    const ratio = i / (side.count || 1);
+                    const x = side.start[0] + (side.end[0] - side.start[0]) * ratio;
+                    const y = side.start[1] + (side.end[1] - side.start[1]) * ratio;
+                    points.push({ x, y, index: nextIndex++ });
+                }
+            });
+
+            points.forEach(point => renderPoint(point.x, point.y, point.index));
+            updateStats();
+        }
+
+        // 创建新点
+        function createNewPoint(x, y) {
+            const newPoint = { x, y, index: nextIndex++ };
+            points.push(newPoint);
+            renderPoint(x, y, newPoint.index);
+            history.push({ type: 'addPoint', index: newPoint.index });
+            updateStats();
+        }
+
+        // 渲染单个点
+        function renderPoint(x, y, index) {
+            const point = document.createElement('div');
+            point.className = 'point';
+            point.style.left = x + 'px';
+            point.style.top = y + 'px';
+            point.dataset.index = index;
+            point.onclick = handleClick;
+            container.appendChild(point);
+        }
+
+        // 处理点击事件
+        function handleClick(e) {
+            e.stopPropagation();
+            const idx = parseInt(e.target.dataset.index);
+            let addedConnections = [];
+            
+            points.forEach(point => {
+                if(point.index === idx) return;
+                
+                const key = [Math.min(idx, point.index), Math.max(idx, point.index)].join('-');
+                if(!connections.has(key)) {
+                    connections.add(key);
+                    createLine(
+                        { x: e.target.offsetLeft, y: e.target.offsetTop },
+                        { x: point.x, y: point.y },
+                        currentColor,
+                        key
+                    );
+                    addedConnections.push(key);
+                }
+            });
+
+            if (addedConnections.length > 0) {
+                history.push({ type: 'connect', connections: addedConnections });
+            }
+            updateStats();
+        }
+
+        // 创建连线
+        function createLine(start, end, color, key) {
+            const dx = end.x - start.x;
+            const dy = end.y - start.y;
+            const length = Math.sqrt(dx*dx + dy*dy);
+            const angle = Math.atan2(dy, dx);
+            
+            const line = document.createElement('div');
+            line.className = 'line';
+            line.style.cssText = `
+                width: 0px;
+                height: 2px;
+                background: linear-gradient(to right, ${color}, ${color}80);
+                left: ${start.x}px;
+                top: ${start.y}px;
+                transform: rotate(${angle}rad);
+                position: absolute;
+                z-index: 1;
+            `;
+            line.dataset.key = key;
+            
+            container.appendChild(line);
+            
+            setTimeout(() => {
+                line.style.width = `${length}px`;
+            }, 10);
+        }
+
+        // 撤回功能
+        function undo() {
+            if (history.length === 0) return;
+
+            const lastAction = history.pop();
+            switch (lastAction.type) {
+                case 'addPoint':
+                    // 删除点及相关连线
+                    const removedIndex = lastAction.index;
+                    points = points.filter(p => p.index !== removedIndex);
+                    document.querySelectorAll(`.point[data-index="${removedIndex}"]`).forEach(point => point.remove());
+                    
+                    // 删除相关连线
+                    const connectionsToRemove = [...connections].filter(key => {
+                        const [a, b] = key.split('-').map(Number);
+                        return a === removedIndex || b === removedIndex;
+                    });
+                    connectionsToRemove.forEach(key => {
+                        connections.delete(key);
+                        document.querySelectorAll(`.line[data-key="${key}"]`).forEach(line => line.remove());
+                    });
+                    break;
+                    
+                case 'connect':
+                    // 删除相关连线
+                    lastAction.connections.forEach(key => {
+                        connections.delete(key);
+                        document.querySelectorAll(`.line[data-key="${key}"]`).forEach(line => line.remove());
+                    });
+                    break;
+            }
+            updateStats();
+        }
+
+        // 更新统计信息
+        function updateStats() {
+            const pointCount = points.length;
+            const connectionCount = connections.size;
+            const maxConnections = pointCount > 1 ? pointCount * (pointCount - 1) / 2 : 0;
+            const completion = maxConnections > 0 
+                ? (connectionCount / maxConnections * 100).toFixed(1)
+                : 0;
+
+            document.getElementById('pointCount').textContent = pointCount;
+            document.getElementById('connectionCount').textContent = connectionCount;
+            document.getElementById('completion').textContent = `${completion}%`;
+        }
+    </script>
+</body>
+</html>
